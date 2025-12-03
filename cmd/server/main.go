@@ -55,6 +55,7 @@ func main() {
 
 	// Command-line flags to control the application's behavior.
 	var login bool
+	var personalLogin bool
 	var codexLogin bool
 	var claudeLogin bool
 	var qwenLogin bool
@@ -69,6 +70,7 @@ func main() {
 
 	// Define command-line flags for different operation modes.
 	flag.BoolVar(&login, "login", false, "Login Google Account")
+	flag.BoolVar(&personalLogin, "personal-login", false, "Login with personal Google account (no projectId required)")
 	flag.BoolVar(&codexLogin, "codex-login", false, "Login to Codex using OAuth")
 	flag.BoolVar(&claudeLogin, "claude-login", false, "Login to Claude using OAuth")
 	flag.BoolVar(&qwenLogin, "qwen-login", false, "Login to Qwen using OAuth")
@@ -433,6 +435,9 @@ func main() {
 	} else if login {
 		// Handle Google/Gemini login
 		cmd.DoLogin(cfg, projectID, options)
+	} else if personalLogin {
+		// Handle personal Google account login (no projectId required)
+		cmd.DoPersonalLogin(cfg, options)
 	} else if antigravityLogin {
 		// Handle Antigravity login
 		cmd.DoAntigravityLogin(cfg, options)

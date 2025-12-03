@@ -178,6 +178,16 @@ func (a *Auth) AccountInfo() (string, string) {
 		}
 	}
 
+	// For Gemini Personal (free-tier without projectId)
+	if strings.ToLower(a.Provider) == "gemini-personal" {
+		if a.Metadata != nil {
+			email, _ := a.Metadata["email"].(string)
+			if email = strings.TrimSpace(email); email != "" {
+				return "oauth", email
+			}
+		}
+	}
+
 	// For iFlow provider, prioritize OAuth type if email is present
 	if strings.ToLower(a.Provider) == "iflow" {
 		if a.Metadata != nil {
