@@ -71,13 +71,14 @@ func DoPersonalLogin(cfg *config.Config, options *LoginOptions) {
 	log.Info("Authentication successful.")
 
 	// Perform setup WITHOUT projectId
-	if errSetup := performGeminiPersonalSetup(ctx, httpClient, personalStorage.Email); errSetup != nil {
+	projectID, errSetup := performGeminiPersonalSetup(ctx, httpClient, personalStorage.Email)
+	if errSetup != nil {
 		log.Fatalf("Failed to complete personal user setup: %v", errSetup)
 		return
 	}
 
 	// Update record for personal auth
-	updatePersonalAuthRecord(record, personalStorage)
+	updatePersonalAuthRecord(record, personalStorage, projectID)
 
 	store := sdkAuth.GetTokenStore()
 	if setter, okSetter := store.(interface{ SetBaseDir(string) }); okSetter && cfg != nil {
@@ -99,7 +100,8 @@ func DoPersonalLogin(cfg *config.Config, options *LoginOptions) {
 
 // performGeminiPersonalSetup calls the Gemini CLI setup endpoints WITHOUT cloudaicompanionProject.
 // This enables free-tier access through personal Google accounts.
-func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, email string) error {
+// It returns the managed project ID if one is assigned to the user.
+func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, email string) (string, error) {
 	metadata := map[string]string{
 		"ideType":    "IDE_UNSPECIFIED",
 		"platform":   "PLATFORM_UNSPECIFIED",
@@ -114,7 +116,13 @@ func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, em
 
 	var loadResp map[string]any
 	if errLoad := callGeminiCLI(ctx, httpClient, "loadCodeAssist", loadReqBody, &loadResp); errLoad != nil {
-		return fmt.Errorf("load code assist: %w", errLoad)
+		return "", fmt.Errorf("load code assist: %w", errLoad)
+	}
+
+	// Extract managed project ID if present
+	var managedProjectID string
+	if pid, ok := loadResp["cloudaicompanionProject"].(string); ok {
+		managedProjectID = pid
 	}
 
 	// Get default tier (usually "free-tier" for personal accounts)
@@ -151,12 +159,20 @@ func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, em
 		for {
 			var onboardResp map[string]any
 			if errOnboard := callGeminiCLI(ctx, httpClient, "onboardUser", onboardReqBody, &onboardResp); errOnboard != nil {
-				return fmt.Errorf("onboard user: %w", errOnboard)
+				return "", fmt.Errorf("onboard user: %w", errOnboard)
 			}
 
 			if done, okDone := onboardResp["done"].(bool); okDone && done {
+				// Extract project ID from response
+				if resp, okResp := onboardResp["response"].(map[string]any); okResp {
+					if cp, okCP := resp["cloudaicompanionProject"].(map[string]any); okCP {
+						if id, okID := cp["id"].(string); okID {
+							managedProjectID = id
+						}
+					}
+				}
 				log.Infof("Personal onboarding complete for %s", email)
-				return nil
+				return managedProjectID, nil
 			}
 
 			log.Println("Onboarding in progress, waiting 5 seconds...")
@@ -165,11 +181,11 @@ func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, em
 	}
 
 	log.Infof("User %s already onboarded", email)
-	return nil
+	return managedProjectID, nil
 }
 
 // updatePersonalAuthRecord updates the auth record for personal OAuth storage.
-func updatePersonalAuthRecord(record *cliproxyauth.Auth, storage *gemini.GeminiPersonalTokenStorage) {
+func updatePersonalAuthRecord(record *cliproxyauth.Auth, storage *gemini.GeminiPersonalTokenStorage, projectID string) {
 	if record == nil || storage == nil {
 		return
 	}
@@ -180,7 +196,9 @@ func updatePersonalAuthRecord(record *cliproxyauth.Auth, storage *gemini.GeminiP
 		record.Metadata = make(map[string]any)
 	}
 	record.Metadata["email"] = storage.Email
-	// No project_id for personal
+	if projectID != "" {
+		record.Metadata["project_id"] = projectID
+	}
 
 	record.ID = finalName
 	record.FileName = finalName

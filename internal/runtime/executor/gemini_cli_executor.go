@@ -650,7 +650,7 @@ func applyGeminiCLIHeaders(r *http.Request) {
 		ginHeaders = ginCtx.Request.Header
 	}
 
-	misc.EnsureHeader(r.Header, ginHeaders, "User-Agent", "google-api-nodejs-client/9.15.1")
+	misc.EnsureHeader(r.Header, ginHeaders, "User-Agent", "GeminiCLI/0.0.1 (linux; amd64)")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Goog-Api-Client", "gl-node/22.17.0")
 	misc.EnsureHeader(r.Header, ginHeaders, "Client-Metadata", geminiCLIClientMetadata())
 }

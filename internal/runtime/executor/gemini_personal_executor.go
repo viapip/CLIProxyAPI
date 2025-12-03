@@ -60,7 +60,9 @@ func (e *GeminiPersonalExecutor) Execute(ctx context.Context, auth *cliproxyauth
 		}
 	}
 
-	// NO projectID for personal - this is the key difference from GeminiCLIExecutor
+	// Try to resolve project ID (if available) to support paid tiers/custom projects
+	projectID := resolveGeminiProjectID(auth)
+
 	models := cliPreviewFallbackOrder(req.Model)
 	if len(models) == 0 || models[0] != req.Model {
 		models = append([]string{req.Model}, models...)
@@ -83,8 +85,11 @@ func (e *GeminiPersonalExecutor) Execute(ctx context.Context, auth *cliproxyauth
 			payload = deleteJSONField(payload, "project")
 			payload = deleteJSONField(payload, "model")
 		} else {
-			// NO project field for personal - just set model
-			payload = deleteJSONField(payload, "project") // Ensure no project
+			if projectID != "" {
+				payload = setJSONField(payload, "project", projectID)
+			} else {
+				payload = deleteJSONField(payload, "project")
+			}
 			payload = setJSONField(payload, "model", attemptModel)
 		}
 
@@ -190,7 +195,8 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 	basePayload = fixGeminiCLIImageAspectRatio(req.Model, basePayload)
 	basePayload = applyPayloadConfigWithRoot(e.cfg, req.Model, "gemini", "request", basePayload)
 
-	// NO projectID for personal
+	// Try to resolve project ID (if available)
+	projectID := resolveGeminiProjectID(auth)
 
 	models := cliPreviewFallbackOrder(req.Model)
 	if len(models) == 0 || models[0] != req.Model {
@@ -210,8 +216,12 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 
 	for idx, attemptModel := range models {
 		payload := append([]byte(nil), basePayload...)
-		// NO project field - just model
-		payload = deleteJSONField(payload, "project")
+		
+		if projectID != "" {
+			payload = setJSONField(payload, "project", projectID)
+		} else {
+			payload = deleteJSONField(payload, "project")
+		}
 		payload = setJSONField(payload, "model", attemptModel)
 
 		tok, errTok := tokenSource.Token()
@@ -386,7 +396,15 @@ func (e *GeminiPersonalExecutor) CountTokens(ctx context.Context, auth *cliproxy
 	for _, attemptModel := range models {
 		payload := sdktranslator.TranslateRequest(from, to, attemptModel, bytes.Clone(req.Payload), false)
 		payload = applyThinkingMetadataCLI(payload, req.Metadata, req.Model)
-		payload = deleteJSONField(payload, "project")
+		
+		// Try to resolve project ID (if available)
+		projectID := resolveGeminiProjectID(auth)
+		if projectID != "" {
+			payload = setJSONField(payload, "project", projectID)
+		} else {
+			payload = deleteJSONField(payload, "project")
+		}
+
 		payload = deleteJSONField(payload, "model")
 		payload = deleteJSONField(payload, "request.safetySettings")
 		payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)

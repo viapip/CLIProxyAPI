@@ -5,7 +5,11 @@
 package gemini
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +17,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
@@ -108,9 +114,14 @@ func (g *GeminiAuth) GetAuthenticatedClient(ctx context.Context, ts *GeminiToken
 	// If no token is found in storage, initiate the web-based OAuth flow.
 	if ts.Token == nil {
 		fmt.Printf("Could not load token from file, starting OAuth flow.\n")
-		token, err = g.getTokenFromWeb(ctx, conf, noBrowser...)
+		if len(noBrowser) > 0 && noBrowser[0] {
+			token, err = g.getTokenFromConsole(ctx, conf)
+		} else {
+			token, err = g.getTokenFromWeb(ctx, conf, noBrowser...)
+		}
+
 		if err != nil {
-			return nil, fmt.Errorf("failed to get token from web: %w", err)
+			return nil, fmt.Errorf("failed to get token: %w", err)
 		}
 		// After getting a new token, create a new token storage object with user info.
 		newTs, errCreateTokenStorage := g.createTokenStorage(ctx, conf, token, ts.ProjectID)
@@ -194,6 +205,66 @@ func (g *GeminiAuth) createTokenStorage(ctx context.Context, config *oauth2.Conf
 	}
 
 	return &ts, nil
+}
+
+// getTokenFromConsole initiates the copy-paste OAuth2 authorization flow.
+// It prints the authorization URL and reads the authorization code from stdin.
+//
+// Parameters:
+//   - ctx: The context for the HTTP client
+//   - config: The OAuth2 configuration
+//
+// Returns:
+//   - *oauth2.Token: The OAuth2 token obtained from the authorization flow
+//   - error: An error if the token acquisition fails, nil otherwise
+func (g *GeminiAuth) getTokenFromConsole(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
+	// Use the special redirect URI for manual copy-paste flow
+	config.RedirectURL = "https://codeassist.google.com/authcode"
+
+	// Generate PKCE verifier and challenge
+	codeVerifier, codeChallenge := generatePKCE()
+
+	// Add PKCE parameters to the Auth URL
+	authURL := config.AuthCodeURL("state-token",
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "consent"),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+	)
+
+	fmt.Println("Please visit the following URL to authorize the application:")
+	fmt.Println(authURL)
+	fmt.Println("")
+	fmt.Print("Enter the authorization code: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	code, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("failed to read authorization code: %w", err)
+	}
+	code = strings.TrimSpace(code)
+
+	if code == "" {
+		return nil, errors.New("authorization code is required")
+	}
+
+	// Exchange the code for a token, including the code verifier
+	return config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", codeVerifier))
+}
+
+func generatePKCE() (verifier, challenge string) {
+	// Generate 32 random bytes for verifier
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to not using PKCE if randomness fails (unlikely)
+		return "", ""
+	}
+	verifier = base64.RawURLEncoding.EncodeToString(b)
+
+	// Calculate S256 challenge
+	h := sha256.Sum256([]byte(verifier))
+	challenge = base64.RawURLEncoding.EncodeToString(h[:])
+	return verifier, challenge
 }
 
 // getTokenFromWeb initiates the web-based OAuth2 authorization flow.

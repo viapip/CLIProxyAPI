@@ -17,4 +17,15 @@ func init() {
 			TokenCount: GeminiCLITokenCount,
 		},
 	)
+
+	translator.Register(
+		GeminiPersonal,
+		Claude,
+		ConvertGeminiCLIRequestToClaude,
+		interfaces.TranslateResponse{
+			Stream:     ConvertClaudeResponseToGeminiCLI,
+			NonStream:  ConvertClaudeResponseToGeminiCLINonStream,
+			TokenCount: GeminiCLITokenCount,
+		},
+	)
 }
