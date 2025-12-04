@@ -26,6 +26,10 @@ type GeminiPersonalTokenStorage struct {
 
 	// Type indicates the authentication provider type, always "gemini-personal" for this storage.
 	Type string `json:"type"`
+
+	// ProjectID is the managed cloudaicompanionProject ID assigned by Google during onboarding.
+	// This is required for all API requests to cloudcode-pa.googleapis.com.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // SaveTokenToFile serializes the Gemini personal token storage to a JSON file.

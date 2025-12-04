@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
@@ -61,7 +63,7 @@ func (e *GeminiPersonalExecutor) Execute(ctx context.Context, auth *cliproxyauth
 	}
 
 	// Try to resolve project ID (if available) to support paid tiers/custom projects
-	projectID := resolveGeminiProjectID(auth)
+	projectID := resolvePersonalProjectID(auth)
 
 	models := cliPreviewFallbackOrder(req.Model)
 	if len(models) == 0 || models[0] != req.Model {
@@ -112,6 +114,9 @@ func (e *GeminiPersonalExecutor) Execute(ctx context.Context, auth *cliproxyauth
 		}
 		reqHTTP.Header.Set("Content-Type", "application/json")
 		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+
+		reqHTTP.Header.Set("User-Agent", "GeminiCLI/0.17.0 (linux; amd64)")
+		reqHTTP.Header.Set("X-Goog-Api-Client", "gl-node/22.17.0")
 		applyGeminiCLIHeaders(reqHTTP)
 		reqHTTP.Header.Set("Accept", "application/json")
 		recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
@@ -196,7 +201,7 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 	basePayload = applyPayloadConfigWithRoot(e.cfg, req.Model, "gemini", "request", basePayload)
 
 	// Try to resolve project ID (if available)
-	projectID := resolveGeminiProjectID(auth)
+	projectID := resolvePersonalProjectID(auth)
 
 	models := cliPreviewFallbackOrder(req.Model)
 	if len(models) == 0 || models[0] != req.Model {
@@ -216,7 +221,7 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 
 	for idx, attemptModel := range models {
 		payload := append([]byte(nil), basePayload...)
-		
+
 		if projectID != "" {
 			payload = setJSONField(payload, "project", projectID)
 		} else {
@@ -238,6 +243,7 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 			url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
 		}
 
+		log.Debugf("gemini personal executor: request url: %s", url)
 		reqHTTP, errReq := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 		if errReq != nil {
 			err = errReq
@@ -245,6 +251,9 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 		}
 		reqHTTP.Header.Set("Content-Type", "application/json")
 		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+
+		reqHTTP.Header.Set("User-Agent", "GeminiCLI/0.17.0 (linux; amd64)")
+		reqHTTP.Header.Set("X-Goog-Api-Client", "gl-node/22.17.0")
 		applyGeminiCLIHeaders(reqHTTP)
 		reqHTTP.Header.Set("Accept", "text/event-stream")
 		recordAPIRequest(ctx, e.cfg, upstreamRequestLog{
@@ -280,6 +289,8 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 			lastStatus = httpResp.StatusCode
 			lastBody = append([]byte(nil), data...)
 			log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+
+			log.Debugf("gemini personal executor: request payload: %s", string(payload))
 			if httpResp.StatusCode == 429 {
 				if idx+1 < len(models) {
 					log.Debugf("gemini personal executor: rate limited, retrying with next model: %s", models[idx+1])
@@ -396,9 +407,9 @@ func (e *GeminiPersonalExecutor) CountTokens(ctx context.Context, auth *cliproxy
 	for _, attemptModel := range models {
 		payload := sdktranslator.TranslateRequest(from, to, attemptModel, bytes.Clone(req.Payload), false)
 		payload = applyThinkingMetadataCLI(payload, req.Metadata, req.Model)
-		
+
 		// Try to resolve project ID (if available)
-		projectID := resolveGeminiProjectID(auth)
+		projectID := resolvePersonalProjectID(auth)
 		if projectID != "" {
 			payload = setJSONField(payload, "project", projectID)
 		} else {
@@ -479,4 +490,27 @@ func (e *GeminiPersonalExecutor) Refresh(ctx context.Context, auth *cliproxyauth
 	log.Debugf("gemini personal executor: refresh called")
 	_ = ctx
 	return auth, nil
+}
+
+// resolvePersonalProjectID extracts the project ID for personal OAuth.
+// This is required for all API requests to cloudcode-pa.googleapis.com.
+// It checks multiple sources: Storage (during login), Metadata (after file load).
+func resolvePersonalProjectID(auth *cliproxyauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	// Check GeminiPersonalTokenStorage first (available during login session)
+	if personal, ok := auth.Storage.(*gemini.GeminiPersonalTokenStorage); ok && personal != nil {
+		if personal.ProjectID != "" {
+			return strings.TrimSpace(personal.ProjectID)
+		}
+	}
+	// Check Metadata (populated when loading from JSON file)
+	if auth.Metadata != nil {
+		if pid, ok := auth.Metadata["project_id"].(string); ok && pid != "" {
+			return strings.TrimSpace(pid)
+		}
+	}
+	// Fallback to generic resolver
+	return resolveGeminiProjectID(auth)
 }

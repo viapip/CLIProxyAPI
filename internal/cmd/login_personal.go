@@ -123,6 +123,9 @@ func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, em
 	var managedProjectID string
 	if pid, ok := loadResp["cloudaicompanionProject"].(string); ok {
 		managedProjectID = pid
+		log.Infof("loadCodeAssist returned cloudaicompanionProject: %s", managedProjectID)
+	} else {
+		log.Warnf("loadCodeAssist did not return cloudaicompanionProject (raw value: %v)", loadResp["cloudaicompanionProject"])
 	}
 
 	// Get default tier (usually "free-tier" for personal accounts)
@@ -143,12 +146,13 @@ func performGeminiPersonalSetup(ctx context.Context, httpClient *http.Client, em
 	}
 
 	// Check if onboarding needed
-	currentTier := ""
-	if ct, ok := loadResp["currentTier"].(string); ok {
-		currentTier = ct
+	// Note: currentTier is an OBJECT {id: "...", name: "...", ...}, not a string
+	var hasCurrentTier bool
+	if ct, ok := loadResp["currentTier"].(map[string]any); ok && ct != nil {
+		hasCurrentTier = true
 	}
 
-	if currentTier == "" {
+	if !hasCurrentTier {
 		// onboardUser WITHOUT cloudaicompanionProject
 		onboardReqBody := map[string]any{
 			"tierId":   tierID,
@@ -199,6 +203,9 @@ func updatePersonalAuthRecord(record *cliproxyauth.Auth, storage *gemini.GeminiP
 	if projectID != "" {
 		record.Metadata["project_id"] = projectID
 	}
+
+	// Save projectID to storage so it persists in the JSON file
+	storage.ProjectID = projectID
 
 	record.ID = finalName
 	record.FileName = finalName
