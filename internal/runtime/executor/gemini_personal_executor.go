@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net/http"
@@ -93,6 +94,7 @@ func (e *GeminiPersonalExecutor) Execute(ctx context.Context, auth *cliproxyauth
 				payload = deleteJSONField(payload, "project")
 			}
 			payload = setJSONField(payload, "model", attemptModel)
+			payload = setJSONField(payload, "user_prompt_id", generatePromptID())
 		}
 
 		tok, errTok := tokenSource.Token()
@@ -228,6 +230,7 @@ func (e *GeminiPersonalExecutor) ExecuteStream(ctx context.Context, auth *clipro
 			payload = deleteJSONField(payload, "project")
 		}
 		payload = setJSONField(payload, "model", attemptModel)
+		payload = setJSONField(payload, "user_prompt_id", generatePromptID())
 
 		tok, errTok := tokenSource.Token()
 		if errTok != nil {
@@ -513,4 +516,12 @@ func resolvePersonalProjectID(auth *cliproxyauth.Auth) string {
 	}
 	// Fallback to generic resolver
 	return resolveGeminiProjectID(auth)
+}
+
+// generatePromptID creates a random hex string for user_prompt_id field.
+// This matches gemini-cli format: 14-character hex string.
+func generatePromptID() string {
+	b := make([]byte, 7)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%x", b)
 }
