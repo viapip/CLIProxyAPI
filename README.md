@@ -2,6 +2,22 @@
 
 English | [中文](README_CN.md)
 
+## Recent Changes
+
+### Gemini Personal Account Support
+
+Added support for personal Google account authentication for Gemini CLI without requiring a GCP project:
+
+- **Personal Google account login** - Authenticate with your personal Google account directly
+- **Console-based OAuth2 flow** - Authenticate without a browser using device code flow
+- **Automatic ProjectID management** - Handles managed project IDs for personal accounts
+- **Docker host network mode** - Updated Docker configuration for better local network access
+
+**Usage:**
+```bash
+docker compose exec cli-proxy-api /CLIProxyAPI/CLIProxyAPI -no-browser --personal-login
+```
+
 A proxy server that provides OpenAI/Gemini/Claude/Codex compatible API interfaces for CLI.
 
 It now also supports OpenAI Codex (GPT models) and Claude Code via OAuth.

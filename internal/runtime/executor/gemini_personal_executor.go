@@ -411,14 +411,8 @@ func (e *GeminiPersonalExecutor) CountTokens(ctx context.Context, auth *cliproxy
 		payload := sdktranslator.TranslateRequest(from, to, attemptModel, bytes.Clone(req.Payload), false)
 		payload = applyThinkingMetadataCLI(payload, req.Metadata, req.Model)
 
-		// Try to resolve project ID (if available)
-		projectID := resolvePersonalProjectID(auth)
-		if projectID != "" {
-			payload = setJSONField(payload, "project", projectID)
-		} else {
-			payload = deleteJSONField(payload, "project")
-		}
-
+		// countTokens endpoint does not accept project field in payload
+		payload = deleteJSONField(payload, "project")
 		payload = deleteJSONField(payload, "model")
 		payload = deleteJSONField(payload, "request.safetySettings")
 		payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
